@@ -20,7 +20,7 @@ migrations_dir = "migrations"
 
 [vars]
 # Set to https://YOUR-TEAM.cloudflareaccess.com (HTTPS, no trailing slash).
-CF_ACCESS_TEAM_DOMAIN = "REPLACE_WITH_ACCESS_TEAM_DOMAIN"
+CF_ACCESS_TEAM_DOMAIN = "https://soft-forest-df84.cloudflareaccess.com"
 # Cloudflare Access application AUD tag (not the application ID).
-CF_ACCESS_AUD = "REPLACE_WITH_ACCESS_AUD"
+CF_ACCESS_AUD = "a693f389e678d4cecdabcda1d50c71e1ea212cbb01b4226677d65a490d386234"
 
