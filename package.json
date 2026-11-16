@@ -1,0 +1,14 @@
+{
+  "name": "stockroom-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "npx --yes --package=typescript@5.9.3 tsc --noEmit",
+    "test": "node --experimental-strip-types --experimental-sqlite --test tests/*.test.mjs",
+    "build": "npm run typecheck",
+    "deploy": "npx --yes --package=wrangler@4.45.0 wrangler deploy",
+    "migrate:remote": "npx --yes --package=wrangler@4.45.0 wrangler d1 migrations apply stockroom-db --remote",
+    "migrate:local": "npx --yes --package=wrangler@4.45.0 wrangler d1 migrations apply stockroom-db --local"
+  }
+}
