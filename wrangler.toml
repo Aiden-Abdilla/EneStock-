@@ -12,7 +12,7 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "stockroom-db"
-database_id = "REPLACE_WITH_D1_DATABASE_UUID"
+database_id = "3a6a7155-675a-42e2-b195-756de0762431"
 migrations_dir = "migrations"
 
 [vars]
@@ -20,3 +20,4 @@ migrations_dir = "migrations"
 CF_ACCESS_TEAM_DOMAIN = "REPLACE_WITH_ACCESS_TEAM_DOMAIN"
 # Cloudflare Access application AUD tag (not the application ID).
 CF_ACCESS_AUD = "REPLACE_WITH_ACCESS_AUD"
+
