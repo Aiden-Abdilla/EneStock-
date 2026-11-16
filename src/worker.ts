@@ -47,7 +47,8 @@ async function authenticate(req: Request, env: Env): Promise<boolean> {
     const jwk = keyCache.keys.find((k) => k.kid === header.kid && k.kty === 'RSA');
     if (!jwk) return false;
     const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-    return await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, bytes64(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
+    const signature = Uint8Array.from(bytes64(parts[2])).buffer;
+    return await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
   } catch { return false; }
 }
 function dates(url: URL): { start: string; end: string } | null {
@@ -148,3 +149,4 @@ async function handler(req: Request, env: Env): Promise<Response> {
 }
 export default { fetch: handler };
 export { maltaMidnight, dates, escapeCsv };
+
