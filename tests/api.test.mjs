@@ -4,7 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {generateKeyPairSync,sign} from 'node:crypto';
 import worker,{maltaMidnight} from '../src/worker.ts';
-const migration=readFileSync(new URL('../migrations/0001_inventory.sql',import.meta.url),'utf8');
+import {schema as migration} from './schema.mjs';
 const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
 const jwk={...publicKey.export({format:'jwk'}),kid:'test-key',alg:'RS256',use:'sig'};
 const issuer='https://stockroom-test.cloudflareaccess.com',aud='test-audience';
@@ -43,7 +43,7 @@ test('worker API, report and CSV accept full end date in Europe/Malta',async()=>
  const dateParts=date.match(/\d+/g);const maltaDate=dateParts?.length===3&&dateParts[0].length===4?dateParts.join('-'):new Date().toISOString().slice(0,10);
  const report=await request(env,`/api/history?start=${maltaDate}&end=${maltaDate}`);
  assert.equal(report.status,200);const data=await report.json();assert.equal(data.movements.length,4);
- assert.deepEqual(data.totals,{received:3,issued:1});
+ assert.deepEqual(data.totals,{received:3,issued:1,transferred:0});
  const csv=await request(env,`/api/history.csv?start=${maltaDate}&end=${maltaDate}`);
  assert.equal(csv.status,200);const text=await csv.text();
  assert.equal(text.trim().split('\r\n').length,5);
@@ -65,4 +65,34 @@ test('Malta date boundaries change across daylight savings',()=>{
  assert.equal(maltaMidnight('2026-03-30'),'2026-03-29T22:00:00.000Z');
  assert.equal(maltaMidnight('2026-10-25'),'2026-10-24T22:00:00.000Z');
  assert.equal(maltaMidnight('2026-10-26'),'2026-10-25T23:00:00.000Z');
+});
+test('weekly summary gives opening, in, out and closing per item',async()=>{
+ const {db,env}=setup();
+ await request(env,'/api/items','POST',{name:'SFP',barcode:'0099'});
+ const scan=async(i,direction)=>request(env,'/api/scan','POST',{barcode:'0099',direction,requestId:`00000000-0000-4000-8000-${String(i).padStart(12,'0')}`});
+ for(let i=0;i<5;i++)await scan(i,'in');
+ // Move the first 5 receipts into the previous week (Malta time).
+ db.prepare("UPDATE movements SET created_at='2026-11-05T10:00:00.000Z'").run();
+ db.prepare("UPDATE items SET created_at='2026-11-01T10:00:00.000Z'").run();
+ await scan(10,'out');await scan(11,'out');await scan(12,'in');
+ db.prepare("UPDATE movements SET created_at='2026-11-10T10:00:00.000Z' WHERE created_at > '2026-11-06'").run();
+ const r=await request(env,'/api/summary?start=2026-11-09&end=2026-11-15');
+ assert.equal(r.status,200);
+ const [row]=(await r.json()).items;
+ assert.deepEqual({opening:row.opening,received:row.received,issued:row.issued,closing:row.closing},{opening:5,received:1,issued:2,closing:4});
+ assert.equal((await request(env,'/api/summary?start=2026-11-15&end=2026-11-09')).status,400);
+ const csv=await request(env,'/api/history.csv?start=2026-11-09&end=2026-11-15');
+ assert.match(csv.headers.get('content-disposition'),/stockroom-movements_2026-11-09_to_2026-11-15\.csv/);
+ db.close();
+});
+test('production records the Access email as "who" and ignores a spoofed header',async()=>{
+ const {db,env}=setup();
+ const h=b64({alg:'RS256',kid:'test-key'}), p=b64({iss:issuer,aud:[aud],exp:Math.floor(Date.now()/1000)+300,email:'tristan@enemalta.example'});
+ const token=`${h}.${p}.`+sign('RSA-SHA256',Buffer.from(`${h}.${p}`),privateKey).toString('base64url');
+ const send=(path,method,body)=>worker.fetch(new Request('https://stock.example.com'+path,{method,headers:{'Cf-Access-Jwt-Assertion':token,'content-type':'application/json','X-Stockroom-User':'someone-else'},body:body&&JSON.stringify(body)}),env);
+ await send('/api/items','POST',{name:'AP',barcode:'Q9'});
+ const r=await (await send('/api/scan','POST',{barcode:'Q9',direction:'in',requestId:'00000000-0000-4000-8000-00000000abcd'})).json();
+ assert.equal(r.movement.actor,'tristan@enemalta.example');
+ assert.deepEqual(await (await send('/api/me','GET')).json(),{name:'tristan@enemalta.example',source:'access'});
+ db.close();
 });

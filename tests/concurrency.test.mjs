@@ -5,11 +5,11 @@ import {Worker} from 'node:worker_threads';
 import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-const migration=readFileSync(new URL('../migrations/0001_inventory.sql',import.meta.url),'utf8');
+import {schema as migration} from './schema.mjs';
 test('two simultaneous separate SQLite connections cannot withdraw the last unit twice', async()=>{
   const dir=mkdtempSync(join(tmpdir(),'stockroom-concurrent-'));const path=join(dir,'db.sqlite');
   try {
-    const db=new DatabaseSync(path);db.exec(migration);db.prepare('INSERT INTO items (name,barcode,quantity) VALUES (?,?,?)').run('Last unit','001',1);db.close();
+    const db=new DatabaseSync(path);db.exec(migration);db.prepare('INSERT INTO items (name,barcode,quantity) VALUES (?,?,?)').run('Last unit','001',1);db.prepare('INSERT INTO stock (item_id,location_id,quantity) VALUES (1,1,1)').run();db.close();
     const gate=new SharedArrayBuffer(8);const flags=new Int32Array(gate);
     const workers=['one','two'].map(id=>new Worker(new URL('./concurrent-withdrawal.worker.mjs',import.meta.url),{workerData:{id,path,gate}}));
     const outcomes=workers.map(w=>new Promise((resolve,reject)=>{w.once('message',resolve);w.once('error',reject);w.once('exit',code=>{if(code!==0)reject(new Error('Worker exited '+code));});}));

@@ -71,7 +71,32 @@ Open `https://stock.example.com` (replace with your real hostname), sign in with
 
 Register an item from the **Register Item** form. Scan a barcode into that form, or type it. Select **Stock In** and click the scan field: scanning `001234` + Enter records +1. Select **Stock Out** for -1. The scan field stays active after each result. Each Enter gets a new `crypto.randomUUID()` request ID; the API accepts an identical request ID again without double-counting. If implementing network retries later, reuse the **same** request ID for that specific intent.
 
-## Reporting
+## Everyday use
+
+- **Who.** Click the name chip (top right) and enter your name; it's saved on every scan, count and move on that PC. On the Cloudflare deployment this is automatic: the verified Cloudflare Access email is recorded, and anything the browser sends is ignored.
+- **Locations.** Inventory → **Locations** to add stores and sites (MPS store, DPS store, Naxxar DC…) and rename them. Existing stock starts in "Main store"; rename it to your real store. A location can only be removed while it has never held stock.
+- **Scan.** Choose **Stock in**, **Stock out** or **Move**, and the location (Move: from → to). Each scan records **Qty** units (resets to 1 after each scan and on mode change). Stock out is checked against the stock *at that location*. Moves don't change totals, so they don't count as in or out in reports.
+- **Reason / note.** Stock out has a reason field with quick buttons; Move has a note. Both stay filled for the next scans until you clear them.
+- **Unknown barcode.** In Stock in, the result card offers **Register & add N**.
+- **Inventory.** Grouped into folding sections by category (once any item has one). Filters: All, **Low** (below its minimum level), **Out**, plus a location picker. Items with the same name (e.g. APs registered by serial) fold into one row. Scan into the search box to open an item; an unknown code opens Register.
+- **Item sheet.** Shows stock per location. **Count at** a location: type what you counted and press Enter; the difference is saved as a count adjustment. **Move** stock between locations. **Details**: name, barcode, category and minimum level. **Print label**. **Delete** only for items that never had stock.
+- **Labels.** Code 128 barcodes for 62×29 mm (Brother DK-11209), 50×25, 57×32 (Dymo 11354), 102×51 (Zebra 4×2") and A4 sheets of 24 (70×37 mm). In the print dialog set margins to None and scale to 100%. For items without a barcode, press **Generate** when registering (codes like `SR-7K2M9QX`, no look-alike characters) and the label dialog opens straight after.
+
+## Weekly stock-take report
+
+Open **Reports**. It defaults to **This week** (Monday to Sunday, Malta time). Use **Last week** or the ‹ › arrows to step through weeks, or **Custom** for any date range.
+
+- **Movement by item** shows each item's opening balance, units in, units out, net change and closing balance for the period. Switch between items that moved and all items.
+- **Needs reordering** and **By category** cards appear when items have minimum levels or categories.
+- **Export weekly report** downloads an Excel workbook named like `Stock-take_W46-2026_2026-11-09_to_2026-11-15.xlsx`, with four sheets: **Summary** (totals, by category, by item), **Reorder** (items below minimum, short by how many), **Movements** (every scan, count and move with location, reason/note and who), and **Stock by location** (one column per location, total, minimum and status). It is generated in the browser, with no extra dependencies, and barcodes keep their leading zeros.
+- **Print / PDF** prints the same report as a clean A4 page.
+- **CSV** is the raw movement log, as before.
+
+Suggested routine: every Monday, open Reports → Last week → Export weekly report, and email the file.
+
+## Reporting (API)
+
+`GET /api/summary?start=YYYY-MM-DD&end=YYYY-MM-DD` returns the per-item opening, received, issued and closing figures used by the report.
 
 Choose Start date and End date and press Apply dates. Bounds are midnight-to-midnight in `Europe/Malta`, including the entire end date even on DST transition days. **Export CSV** uses the exact same date criteria and movement query, with an Excel-compatible BOM and CRLF. Date ranges are currently loaded up to available D1 result size; add server-side pagination for a high-volume production inventory.
 
@@ -91,4 +116,3 @@ The tests cover registering `001234`, 3 receipts + 1 issue => **2 on hand** and 
 ## Limitations
 
 Only **successful** movements are stored; failed scans leave history untouched. No user administration, audit of unsuccessful scan attempts, bulk imports, backups, or multi-store support. No guaranteed disaster-recovery process: configure and periodically test D1 backups/export separately. Browser UI and live D1 end-to-end tests require deployment and authenticated Cloudflare account access.
-

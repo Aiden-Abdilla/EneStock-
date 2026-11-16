@@ -1,7 +1,415 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Stockroom | Stock</title><link rel="stylesheet" href="/style.css"></head><body><main>
-<header><h1>Stockroom <span> / Stock</span></h1><p>Barcode-driven stock movements</p></header>
-<section class="panel"><div class="mode"><button id="in" type="button">＋ Stock In</button><button id="out" type="button">－ Stock Out</button><strong id="modeLabel" aria-live="polite">Select a mode before scanning</strong></div>
-<label for="scan">Scan barcode or type and press Enter</label><input id="scan" autocomplete="off" spellcheck="false" placeholder="Select Stock In or Stock Out first" disabled><p id="feedback" role="status" aria-live="polite"></p></section>
-<section class="panel"><div class="sectionhead"><h2>Stock</h2><button id="showAdd" type="button" class="secondary">Register Item</button></div><div id="add" hidden><form id="addForm"><label for="name">Item name</label><input id="name" maxlength="200" required><label for="barcode">Barcode (type or scan)</label><input id="barcode" maxlength="128" autocomplete="off" required><button type="submit">Save new item (quantity 0)</button></form><p id="addStatus" role="status"></p></div>
-<input id="search" aria-label="Search stock" placeholder="Search item name or barcode"><div class="scroll"><table><thead><tr><th>Item name</th><th>Barcode</th><th>Quantity on hand</th></tr></thead><tbody id="items"></tbody></table></div></section>
-<section class="panel"><div class="sectionhead"><h2>Movement history &amp; reports</h2><button id="csv" class="secondary">Export CSV</button></div><div class="range"><label>Start date<input type="date" id="start"></label><label>End date (inclusive)<input type="date" id="end"></label><button id="apply" class="secondary">Apply dates</button></div><p id="totals" aria-live="polite"></p><div class="scroll"><table><thead><tr><th>Time (Malta)</th><th>Item</th><th>Barcode</th><th>Direction</th><th>Units</th><th>Balance</th></tr></thead><tbody id="history"></tbody></table></div></section></main><script type="module" src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Stockroom · Enemalta</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%23fc6a01%22/%3E%3Cpath fill=%22%23fff%22 d=%22M12 5 6 8v8l6 3 6-3V8l-6-3Zm0 1.6 4.2 2.1L12 10.8 7.8 8.7 12 6.6Z%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="bar-inner">
+    <div class="brand">
+      <img src="/enemalta.png" alt="Enemalta" class="logo">
+      <span class="divider" aria-hidden="true"></span>
+      <span class="app-name">Stockroom</span>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" data-view="scan" aria-selected="true">Scan</button>
+      <button role="tab" data-view="inventory" aria-selected="false">Inventory</button>
+      <button role="tab" data-view="reports" aria-selected="false">Reports</button>
+    </nav>
+    <div class="bar-right">
+      <span class="clock" id="clock" aria-hidden="true"></span>
+      <button type="button" class="user-chip" id="userChip" title="Who is using this PC"><span class="avatar" id="userAvatar">?</span><span id="userName">Set your name</span></button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ───────────── SCAN ───────────── -->
+  <section class="view" id="view-scan" role="tabpanel">
+    <div class="scan-stage">
+      <div class="segmented big three" role="radiogroup" aria-label="What are you doing">
+        <button id="in" data-mode="in" role="radio" aria-checked="false" class="seg-in"><span class="glyph">↓</span>Stock in</button>
+        <button id="out" data-mode="out" role="radio" aria-checked="false" class="seg-out"><span class="glyph">↑</span>Stock out</button>
+        <button id="move" data-mode="move" role="radio" aria-checked="false" class="seg-move"><span class="glyph">⇄</span>Move</button>
+      </div>
+
+      <div class="where-row">
+        <label class="pick"><span id="locLabel">At</span>
+          <select id="loc" aria-label="Location"></select>
+        </label>
+        <span class="arrow" id="toArrow" hidden>→</span>
+        <label class="pick" id="toPick" hidden><span>To</span>
+          <select id="toLoc" aria-label="Move to"></select>
+        </label>
+      </div>
+
+      <div class="scan-row">
+        <div class="scanbox" id="scanbox" data-mode="">
+          <svg class="scanicon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h2v14H3zm4 0h1v14H7zm3 0h2v14h-2zm4 0h1v14h-1zm3 0h1v14h-1zm3 0h1v14h-1z"/></svg>
+          <input id="scan" autocomplete="off" spellcheck="false" aria-label="Barcode" placeholder="Choose Stock in, Stock out or Move to start" disabled>
+          <span class="qty-badge" id="qtyBadge" hidden></span>
+          <kbd>↵</kbd>
+        </div>
+        <div class="stepper-field" aria-label="Quantity per scan">
+          <span class="stepper-label">Qty</span>
+          <div class="qty-stepper">
+            <button type="button" class="step" id="qtyDown" aria-label="Decrease quantity">−</button>
+            <input id="qty" inputmode="numeric" autocomplete="off" value="1" aria-label="Quantity">
+            <button type="button" class="step" id="qtyUp" aria-label="Increase quantity">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="reason-row" id="reasonRow" hidden>
+        <label class="reason-field">
+          <span class="stepper-label" id="reasonLabel">Reason</span>
+          <input id="reason" maxlength="200" autocomplete="off" list="reasonList" placeholder="Optional, e.g. Installed at Naxxar DC · Faulty, RMA">
+          <button type="button" class="clear" id="clearReason" aria-label="Clear reason" hidden>✕</button>
+        </label>
+        <div class="chips" id="reasonChips">
+          <button type="button" class="chip">Installed</button>
+          <button type="button" class="chip">Faulty / RMA</button>
+          <button type="button" class="chip">Loan</button>
+          <button type="button" class="chip">Disposed</button>
+        </div>
+        <datalist id="reasonList"></datalist>
+      </div>
+      <p class="hint" id="modeHint">Set Qty for boxes or bundles. It goes back to 1 after each scan.</p>
+
+      <div class="result" id="result" hidden aria-live="polite"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>This session</h2>
+        <span class="muted" id="sessionCount">No scans yet</span>
+      </div>
+      <ol class="feed" id="feed"></ol>
+    </div>
+  </section>
+
+  <!-- ───────────── INVENTORY ───────────── -->
+  <section class="view narrow" id="view-inventory" role="tabpanel" hidden>
+    <div class="page-head">
+      <div>
+        <h1>Inventory</h1>
+        <p class="muted" id="invSummary">&nbsp;</p>
+      </div>
+      <div class="actions">
+        <button class="btn" id="showLocations">Locations</button>
+        <button class="btn primary" id="showAdd"><span aria-hidden="true">＋</span> Register</button>
+      </div>
+    </div>
+
+    <div class="finder-row">
+      <div class="search-field">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3a7 7 0 1 0 4.2 12.6l4.6 4.6 1.4-1.4-4.6-4.6A7 7 0 0 0 10 3Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"/></svg>
+        <input id="search" autocomplete="off" spellcheck="false" placeholder="Scan or search" aria-label="Scan or search inventory">
+      </div>
+    </div>
+    <div class="filter-row">
+      <div class="segmented small" role="radiogroup" aria-label="Filter">
+        <button data-filter="all" role="radio" aria-checked="true">All</button>
+        <button data-filter="low" role="radio" aria-checked="false">Low <span class="count amber" id="lowCount"></span></button>
+        <button data-filter="zero" role="radio" aria-checked="false">Out <span class="count" id="zeroCount"></span></button>
+      </div>
+      <select class="select-pill" id="invLoc" aria-label="Location"><option value="">All locations</option></select>
+    </div>
+
+    <div id="items" class="sections" aria-label="Items"></div>
+  </section>
+
+  <!-- ───────────── REPORTS ───────────── -->
+  <section class="view" id="view-reports" role="tabpanel" hidden>
+    <div class="print-head">
+      <img src="/enemalta.png" alt="Enemalta" class="logo">
+      <div>Network stock take · Movement report</div>
+    </div>
+
+    <div class="page-head">
+      <div>
+        <h1 id="rTitle">This week</h1>
+        <p class="muted" id="rSub"></p>
+      </div>
+      <div class="actions no-print">
+        <button class="btn" id="print">Print / PDF</button>
+        <button class="btn" id="csv">CSV</button>
+        <button class="btn primary" id="xlsx">Export weekly report</button>
+      </div>
+    </div>
+
+    <div class="period no-print">
+      <div class="stepper">
+        <button class="icon-btn" id="prevWeek" aria-label="Previous week">‹</button>
+        <div class="segmented small" role="radiogroup" aria-label="Period">
+          <button data-preset="this" role="radio" aria-checked="true">This week</button>
+          <button data-preset="last" role="radio" aria-checked="false">Last week</button>
+          <button data-preset="custom" role="radio" aria-checked="false">Custom</button>
+        </div>
+        <button class="icon-btn" id="nextWeek" aria-label="Next week">›</button>
+      </div>
+      <div class="custom" id="custom" hidden>
+        <label>From <input type="date" id="start"></label>
+        <label>To <input type="date" id="end"></label>
+      </div>
+    </div>
+
+    <div class="stats four">
+      <div class="stat"><span class="stat-label">Units in</span><span class="stat-value in" id="rIn">–</span></div>
+      <div class="stat"><span class="stat-label">Units out</span><span class="stat-value out" id="rOut">–</span></div>
+      <div class="stat"><span class="stat-label">Net change</span><span class="stat-value" id="rNet">–</span></div>
+      <div class="stat"><span class="stat-label">Below minimum</span><span class="stat-value" id="rLow">–</span></div>
+    </div>
+
+    <div class="card flush" id="reorderCard" hidden>
+      <div class="card-head pad">
+        <h2>Needs reordering</h2>
+        <span class="muted">On hand now is below the minimum level</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Item</th><th>Category</th><th class="num">Minimum</th><th class="num">On hand</th><th class="num">Short by</th></tr></thead>
+          <tbody id="reorder"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card flush" id="catCard" hidden>
+      <div class="card-head pad"><h2>By category</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Category</th><th class="num">Items moved</th><th class="num">In</th><th class="num">Out</th><th class="num">Net</th><th class="num">Closing</th></tr></thead>
+          <tbody id="cats"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head pad">
+        <h2>Movement by item</h2>
+        <div class="segmented small no-print" role="radiogroup" aria-label="Rows">
+          <button data-sum="moved" role="radio" aria-checked="true">Moved</button>
+          <button data-sum="all" role="radio" aria-checked="false">All items</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Item</th><th>Barcode</th><th class="num">Opening</th><th class="num">In</th><th class="num">Out</th><th class="num">Net</th><th class="num">Closing</th></tr></thead>
+          <tbody id="summary"></tbody>
+          <tfoot id="summaryFoot"></tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head pad">
+        <h2>Movement log</h2>
+        <span class="muted" id="logCount"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>When</th><th>Item</th><th>Where</th><th>Type</th><th class="num">Qty</th><th>By</th></tr></thead>
+          <tbody id="history"></tbody>
+        </table>
+      </div>
+      <div class="more-bar no-print"><button class="btn" id="logMore" hidden></button></div>
+    </div>
+  </section>
+</main>
+
+<!-- Register item -->
+<dialog id="addDialog" aria-labelledby="addTitle">
+  <form id="addForm" method="dialog" novalidate>
+    <h2 id="addTitle">Register item</h2>
+    <p class="muted">Scan the barcode first, then give it a name. No barcode? Press Generate and print a label.</p>
+    <div class="field"><span>Barcode</span>
+      <div class="input-with-btn">
+        <input id="barcode" maxlength="128" autocomplete="off" spellcheck="false" placeholder="Scan or type" aria-label="Barcode">
+        <button type="button" class="btn small" id="genCode">Generate</button>
+      </div>
+    </div>
+    <label class="field"><span>Name</span><input id="name" maxlength="200" autocomplete="off" placeholder="e.g. Cisco GLC-LH-SMD 1G SFP"></label>
+    <div class="field-pair">
+      <label class="field"><span>Category</span><input id="addCat" maxlength="60" autocomplete="off" list="catList" placeholder="e.g. SFPs"></label>
+      <label class="field"><span>Minimum level</span><input id="addMin" inputmode="numeric" autocomplete="off" placeholder="None"></label>
+    </div>
+    <div class="field" id="addQtyField">
+      <span>Quantity on hand now</span>
+      <div class="qty-inline">
+        <div class="qty-stepper">
+          <button type="button" class="step" data-step="-1" data-for="addQty" aria-label="Decrease">−</button>
+          <input id="addQty" inputmode="numeric" autocomplete="off" value="0" aria-label="Quantity on hand now">
+          <button type="button" class="step" data-step="1" data-for="addQty" aria-label="Increase">+</button>
+        </div>
+        <label class="pick small"><span>at</span><select id="addLoc" aria-label="Location"></select></label>
+      </div>
+    </div>
+    <p class="form-error" id="addStatus" role="status"></p>
+    <div class="dialog-actions">
+      <span></span>
+      <div class="right">
+        <button type="button" class="btn" id="cancelAdd">Cancel</button>
+        <button type="submit" class="btn primary" id="saveAdd">Register</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<!-- Edit / count / move item -->
+<dialog id="itemDialog" aria-labelledby="itemTitle">
+  <form id="itemForm" method="dialog" novalidate>
+    <div class="sheet-head">
+      <div>
+        <h2 id="itemTitle">Item</h2>
+        <span class="code" id="itemCode"></span> <span class="cat-chip" id="itemCat" hidden></span>
+      </div>
+      <button type="button" class="icon-btn" id="closeItem" aria-label="Close">✕</button>
+    </div>
+
+    <ul class="where-list" id="itemWhere"></ul>
+
+    <div class="count-block">
+      <label class="pick small"><span>Count at</span><select id="countLoc" aria-label="Count at location"></select></label>
+      <div class="qty-stepper big">
+        <button type="button" class="step" data-step="-1" data-for="itemCount" aria-label="Decrease">−</button>
+        <input id="itemCount" inputmode="numeric" autocomplete="off" aria-label="Counted quantity">
+        <button type="button" class="step" data-step="1" data-for="itemCount" aria-label="Increase">+</button>
+      </div>
+      <p class="count-hint" id="countHint"></p>
+    </div>
+
+    <label class="field" id="noteField" hidden><span>Note for this adjustment (optional)</span><input id="itemNote" maxlength="200" autocomplete="off" placeholder="e.g. Stock take 16 Nov, 2 found damaged"></label>
+
+    <details class="edit-details" id="moveDetails">
+      <summary>Move to another location</summary>
+      <div class="move-grid">
+        <div class="qty-stepper">
+          <button type="button" class="step" data-step="-1" data-for="moveQty" aria-label="Decrease">−</button>
+          <input id="moveQty" inputmode="numeric" autocomplete="off" value="1" aria-label="Quantity to move">
+          <button type="button" class="step" data-step="1" data-for="moveQty" aria-label="Increase">+</button>
+        </div>
+        <label class="pick small"><span>from</span><select id="moveFrom" aria-label="From"></select></label>
+        <label class="pick small"><span>to</span><select id="moveTo" aria-label="To"></select></label>
+        <button type="button" class="btn" id="doMove">Move</button>
+      </div>
+    </details>
+
+    <details class="edit-details" id="editDetails">
+      <summary>Details: name, barcode, category, minimum</summary>
+      <label class="field"><span>Name</span><input id="itemName" maxlength="200" autocomplete="off"></label>
+      <label class="field"><span>Barcode</span><input id="itemBarcode" maxlength="128" autocomplete="off" spellcheck="false"></label>
+      <div class="field-pair">
+        <label class="field"><span>Category</span><input id="itemCatInput" maxlength="60" autocomplete="off" list="catList" placeholder="None"></label>
+        <label class="field"><span>Minimum level</span><input id="itemMin" inputmode="numeric" autocomplete="off" placeholder="None"></label>
+      </div>
+      <small class="muted">Past movements keep the name and barcode they were recorded with.</small>
+    </details>
+
+    <div class="activity">
+      <span class="stepper-label">Recent activity</span>
+      <ol class="feed compact" id="itemFeed"></ol>
+    </div>
+
+    <p class="form-error" id="itemStatus" role="status"></p>
+    <div class="dialog-actions">
+      <div class="left">
+        <button type="button" class="btn danger" id="deleteItem">Delete</button>
+        <button type="button" class="btn" id="labelItem">Print label</button>
+      </div>
+      <div class="right">
+        <button type="button" class="btn" id="cancelItem">Cancel</button>
+        <button type="submit" class="btn primary" id="saveItem">Save</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<!-- Labels -->
+<dialog id="labelDialog" aria-labelledby="labelTitle">
+  <form id="labelForm" method="dialog" novalidate>
+    <div class="sheet-head">
+      <h2 id="labelTitle">Print label</h2>
+      <button type="button" class="icon-btn" id="closeLabel" aria-label="Close">✕</button>
+    </div>
+    <div class="label-preview-wrap"><div class="label" id="labelPreview"></div></div>
+    <div class="field-pair">
+      <label class="field"><span>Label size</span>
+        <select id="labelSize">
+          <option value="62x29">62 × 29 mm (Brother DK-11209)</option>
+          <option value="50x25">50 × 25 mm</option>
+          <option value="57x32">57 × 32 mm (Dymo 11354)</option>
+          <option value="102x51">102 × 51 mm (Zebra 4×2")</option>
+          <option value="a4">A4 sheet, 24 per page (70 × 37 mm)</option>
+        </select>
+      </label>
+      <div class="field"><span>Copies</span>
+        <div class="qty-stepper">
+          <button type="button" class="step" data-step="-1" data-for="labelCopies" aria-label="Fewer">−</button>
+          <input id="labelCopies" inputmode="numeric" autocomplete="off" value="1" aria-label="Copies">
+          <button type="button" class="step" data-step="1" data-for="labelCopies" aria-label="More">+</button>
+        </div>
+      </div>
+    </div>
+    <p class="form-error" id="labelStatus" role="status"></p>
+    <div class="dialog-actions">
+      <small class="muted">In the print dialog, set margins to None and scale to 100%.</small>
+      <div class="right">
+        <button type="submit" class="btn primary" id="doPrintLabel">Print</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<!-- Locations -->
+<dialog id="locDialog" aria-labelledby="locTitle">
+  <form id="locForm" method="dialog" novalidate>
+    <div class="sheet-head">
+      <div>
+        <h2 id="locTitle">Locations</h2>
+        <p class="muted">Stores and sites where stock is kept. Tap a name to rename it.</p>
+      </div>
+      <button type="button" class="icon-btn" id="closeLoc" aria-label="Close">✕</button>
+    </div>
+    <ul class="loc-list" id="locList"></ul>
+    <div class="input-with-btn">
+      <input id="newLoc" maxlength="80" autocomplete="off" placeholder="New location, e.g. DPS store">
+      <button type="submit" class="btn primary small">Add</button>
+    </div>
+    <p class="form-error" id="locStatus" role="status"></p>
+  </form>
+</dialog>
+
+<!-- Who -->
+<dialog id="whoDialog" aria-labelledby="whoTitle">
+  <form id="whoForm" method="dialog" novalidate>
+    <h2 id="whoTitle">Who’s using this PC?</h2>
+    <p class="muted">Your name is saved on every scan, count and move, so the weekly report shows who did what.</p>
+    <label class="field"><span>Your name</span><input id="whoName" maxlength="60" autocomplete="name" placeholder="e.g. Tristan"></label>
+    <div class="dialog-actions">
+      <span></span>
+      <div class="right">
+        <button type="button" class="btn" id="cancelWho">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<datalist id="catList">
+  <option value="SFPs"><option value="Cables"><option value="Switches"><option value="Access points"><option value="Routers"><option value="Firewalls"><option value="Power"><option value="Tools"><option value="Other">
+</datalist>
+
+<div id="labelSheet" aria-hidden="true"></div>
+<style id="labelPageStyle"></style>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

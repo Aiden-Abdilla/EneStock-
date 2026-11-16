@@ -2,14 +2,15 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-const migration=readFileSync(new URL('../migrations/0001_inventory.sql',import.meta.url),'utf8');
+import {schema as migration} from './schema.mjs';
 const make=()=>{const db=new DatabaseSync(':memory:');db.exec(migration);return db;};
 function scan(db,requestId,barcode,direction){
   const prior=db.prepare('SELECT * FROM movements WHERE request_id=?').get(requestId);
   if(prior)return prior;
-  db.prepare(`INSERT INTO movements (request_id,item_id,item_name,barcode,direction,quantity,resulting_balance)
-    SELECT ?, id, name, barcode, ?, 1, quantity + CASE WHEN ? = 'in' THEN 1 ELSE -1 END
-    FROM items WHERE barcode=? AND (?='in' OR quantity>0)`).run(requestId,direction,direction,barcode,direction);
+  // Same conditional INSERT the API uses (location 1 = Main store).
+  db.prepare(`INSERT INTO movements (request_id,item_id,item_name,barcode,direction,quantity,resulting_balance,location_id,location_balance)
+    SELECT ?, i.id, i.name, i.barcode, ?, 1, i.quantity + CASE WHEN ? = 'in' THEN 1 ELSE -1 END, 1, COALESCE(s.quantity,0) + CASE WHEN ? = 'in' THEN 1 ELSE -1 END
+    FROM items i LEFT JOIN stock s ON s.item_id=i.id AND s.location_id=1 WHERE i.barcode=? AND (?='in' OR COALESCE(s.quantity,0)>0)`).run(requestId,direction,direction,direction,barcode,direction);
   return db.prepare('SELECT * FROM movements WHERE request_id=?').get(requestId);
 }
 test('acceptance: barcode leading zeros, 3 in + 1 out, four records in date-range export',()=>{
@@ -40,7 +41,7 @@ test('idempotent retries do not count twice but intentional scans do',()=>{
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM movements').get().n,2);db.close();
 });
 test('two withdrawals for one unit: exactly one succeeds (conditional SQL)',()=>{
-  const db=make();db.prepare('INSERT INTO items(name,barcode,quantity) VALUES (?,?,?)').run('One','001',1);
+  const db=make();db.prepare('INSERT INTO items(name,barcode,quantity) VALUES (?,?,?)').run('One','001',1);db.prepare('INSERT INTO stock(item_id,location_id,quantity) VALUES (1,1,1)').run();
   const a=scan(db,'a','001','out');const b=scan(db,'b','001','out');
   assert.equal(Number(!!a)+Number(!!b),1);
   assert.equal(db.prepare('SELECT quantity FROM items').get().quantity,0);

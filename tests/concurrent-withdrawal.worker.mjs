@@ -7,8 +7,9 @@ Atomics.add(gate,0,1);
 Atomics.notify(gate,0);
 Atomics.wait(gate,1,0,5000);
 try {
-  const result=db.prepare(`INSERT INTO movements (request_id,item_id,item_name,barcode,direction,quantity,resulting_balance)
-    SELECT ?, id, name, barcode, 'out', 1, quantity - 1 FROM items WHERE barcode = ? AND quantity > 0`).run(workerData.id,'001');
+  const result=db.prepare(`INSERT INTO movements (request_id,item_id,item_name,barcode,direction,quantity,resulting_balance,location_id,location_balance)
+    SELECT ?, i.id, i.name, i.barcode, 'out', 1, i.quantity - 1, 1, s.quantity - 1
+    FROM items i JOIN stock s ON s.item_id=i.id AND s.location_id=1 WHERE i.barcode = ? AND s.quantity > 0`).run(workerData.id,'001');
   parentPort.postMessage({changed: result.changes});
 } catch (e) { parentPort.postMessage({error:String(e)}); }
 finally {db.close();}
